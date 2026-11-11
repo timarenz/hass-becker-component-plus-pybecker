@@ -29,3 +29,6 @@ pair_timed:
       example: "02"
 log_units:
   description: "Log all configured/paired units"
+reset_usb:
+  name: Reset USB stick
+  description: "Perform a kernel-level USB port reset on the Becker Centronic stick and reopen its serial connection without unplugging or rebooting."

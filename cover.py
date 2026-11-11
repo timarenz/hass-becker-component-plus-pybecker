@@ -22,6 +22,7 @@ from homeassistant.const import (
 from homeassistant.core import callback
 from homeassistant.exceptions import TemplateError
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import (
     TrackTemplate,
     async_call_later,
@@ -135,6 +136,8 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         retry_delay=retry_delay
     )
 
+    ent_reg = er.async_get(hass)
+
     for device, device_config in config[CONF_COVERS].items():
         friendly_name = device_config.get(CONF_FRIENDLY_NAME, device)
         channel = device_config.get(CONF_CHANNEL)
@@ -195,6 +198,18 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         if channel is None:
             _LOGGER.error("Must specify %s", CONF_CHANNEL)
             continue
+
+        new_unique_id = f"becker_cover_{channel}_cover.{device}"
+        old_entity_id = ent_reg.async_get_entity_id("cover", DOMAIN, str(channel))
+        if old_entity_id and not ent_reg.async_get_entity_id("cover", DOMAIN, new_unique_id):
+            _LOGGER.info(
+                "Migrating Becker cover %s unique_id from '%s' to '%s'",
+                old_entity_id,
+                channel,
+                new_unique_id,
+            )
+            ent_reg.async_update_entity(old_entity_id, new_unique_id=new_unique_id)
+
         # Initialize all missing units in the db file and send stop command for sync
         await PyBecker.becker.init_unconfigured_unit(channel, name=friendly_name)
 
@@ -222,6 +237,7 @@ class BeckerEntity(CoverEntity, RestoreEntity):
         """Init the Becker entity."""
         self._becker = becker
         self.entity_id = f"cover.{entity_id}"
+        self._unique_id = f"becker_cover_{channel}_cover.{entity_id}"
         self._name = name
         self._attr = dict()
         self._channel = channel
@@ -313,8 +329,8 @@ class BeckerEntity(CoverEntity, RestoreEntity):
 
     @property
     def unique_id(self):
-        """Return the unique id of the device reflecting the channel and entity_id."""
-        return f"becker_cover_{self._channel}_{self.entity_id}"
+        """Return the unique id of the device reflecting the channel and YAML slug."""
+        return self._unique_id
 
     @property
     def current_cover_position(self):
@@ -378,10 +394,7 @@ class BeckerEntity(CoverEntity, RestoreEntity):
                 "The RF command may not have been sent.",
                 self._name, self._channel, err
             )
-            # Mark position as unknown since command failed
-            self._tc.stop()
-            self._attr_current_cover_position = None
-            self.async_write_ha_state()
+            self._travel_stop()
 
     async def async_open_cover_tilt(self, **kwargs):
         """Open the cover tilt."""
@@ -399,10 +412,7 @@ class BeckerEntity(CoverEntity, RestoreEntity):
                     "The RF command may not have been sent.",
                     self._name, self._channel, err
                 )
-                # Mark position as unknown since command failed
-                self._tc.stop()
-                self._attr_current_cover_position = None
-                self.async_write_ha_state()
+                self._travel_stop()
 
     async def async_close_cover(self, **kwargs):
         """Set the cover to the closed position."""
@@ -415,10 +425,7 @@ class BeckerEntity(CoverEntity, RestoreEntity):
                 "The RF command may not have been sent.",
                 self._name, self._channel, err
             )
-            # Mark position as unknown since command failed
-            self._tc.stop()
-            self._attr_current_cover_position = None
-            self.async_write_ha_state()
+            self._travel_stop()
 
     async def async_close_cover_tilt(self, **kwargs):
         """Close the cover tilt."""
@@ -436,10 +443,7 @@ class BeckerEntity(CoverEntity, RestoreEntity):
                     "The RF command may not have been sent.",
                     self._name, self._channel, err
                 )
-                # Mark position as unknown since command failed
-                self._tc.stop()
-                self._attr_current_cover_position = None
-                self.async_write_ha_state()
+                self._travel_stop()
 
     async def async_stop_cover(self, **kwargs):
         """Set the cover to the stopped position."""
@@ -452,9 +456,7 @@ class BeckerEntity(CoverEntity, RestoreEntity):
                 "The RF command may not have been sent.",
                 self._name, self._channel, err
             )
-            # Mark position as unknown since command failed
-            self._attr_current_cover_position = None
-            self.async_write_ha_state()
+            self.async_schedule_update_ha_state()
 
     async def async_set_cover_position(self, **kwargs):
         """Move the cover to a specific position."""
@@ -475,10 +477,7 @@ class BeckerEntity(CoverEntity, RestoreEntity):
                     "The RF command may not have been sent.",
                     self._name, self._channel, pos, err
                 )
-                # Mark position as unknown since command failed
-                self._tc.stop()
-                self._attr_current_cover_position = None
-                self.async_write_ha_state()
+                self._travel_stop()
 
     def _travel_to_position(self, position):
         """Start TravelCalculator and update ha-state."""

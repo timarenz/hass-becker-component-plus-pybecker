@@ -85,12 +85,19 @@ class Becker:
     def close(self):
         """Stop communicator thread, close device and database"""
         self.communicator.close()
-        self.db.conn.close()
+        try:
+            self.db.conn.close()
+        except Exception:  # pylint: disable=broad-except
+            pass
+
+    def reset_usb(self) -> bool:
+        """Reset the Becker USB device and reopen its serial port."""
+        return self.communicator.reset_usb(force=True)
 
     async def write(self, codes):
         for code in codes:
-            self.communicator.send(finalize_code(code))
-            # Sleep implemented in BeckerCommunicator
+            await self.communicator.async_send(finalize_code(code))
+            # Inter-frame pacing is handled in BeckerCommunicator
 
     async def run_codes(self, channel, unit, cmd, test):
         if unit[2] == 0 and cmd != "TRAIN":
@@ -274,7 +281,9 @@ class Becker:
         unit = self.db.get_unit(un)
 
         async def _one(cmd, delay):
-            self.communicator.send(finalize_code(generate_code(ch, unit, cmd, remote_type=sender_type)))
+            await self.communicator.async_send(
+                finalize_code(generate_code(ch, unit, cmd, remote_type=sender_type))
+            )
             unit[1] += 1
             self.db.set_unit(unit, test)
             await asyncio.sleep(delay)

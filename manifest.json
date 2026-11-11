@@ -1,8 +1,9 @@
 {
   "domain": "becker",
   "name": "Becker",
-  "documentation": "",
-  "version": "0.3.7",
+  "documentation": "https://github.com/timarenz/hass-becker-component-plus-pybecker",
+  "issue_tracker": "https://github.com/timarenz/hass-becker-component-plus-pybecker/issues",
+  "version": "0.3.8",
   "requirements": [],
   "dependencies": [],
   "codeowners": ["@nicolasberthel", "@RainerStaude"]

@@ -6,6 +6,8 @@ import os
 
 import voluptuous as vol
 
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import dispatcher_send
 
 from .pybecker.becker import Becker
@@ -43,10 +45,13 @@ class PyBecker:
     """Manages a (single, global) pybecker Becker instance."""
 
     becker = None
+    _stop_unsub = None
 
     @classmethod
     def setup(cls, hass, device=None, filename=None, queue_size=100, retry_max=3, retry_delay=1.0):
         """Initiate becker instance."""
+        if cls.becker is not None:
+            cls.close()
         # Validate filename
         if filename is None:
             filename = SQL_DB_FILE
@@ -88,6 +93,20 @@ class PyBecker:
             retry_max=retry_max,
             retry_delay=retry_delay
         )
+        if cls._stop_unsub is None:
+            async def _async_on_stop(_event):
+                await hass.async_add_executor_job(cls.close)
+
+            cls._stop_unsub = hass.bus.async_listen_once(
+                EVENT_HOMEASSISTANT_STOP, _async_on_stop
+            )
+
+    @classmethod
+    def close(cls):
+        """Close the active Becker instance cleanly."""
+        if cls.becker is not None:
+            cls.becker.close()
+            cls.becker = None
 
     @classmethod
     async def async_register_services(cls, hass):
@@ -96,6 +115,19 @@ class PyBecker:
         hass.services.async_register(DOMAIN, "pair", cls.handle_pair, PAIR_SCHEMA)
         hass.services.async_register(DOMAIN, "pair_timed", cls.handle_pair_timed, PAIR_TIMED_SCHEMA)
         hass.services.async_register(DOMAIN, "log_units", cls.handle_log_units)
+        hass.services.async_register(DOMAIN, "reset_usb", cls.handle_reset_usb)
+
+    @classmethod
+    async def handle_reset_usb(cls, call):
+        """Reset the Becker Centronic USB device and reopen its serial port."""
+        if cls.becker is None:
+            raise HomeAssistantError("Becker USB device is not initialized.")
+        reopened = await call.hass.async_add_executor_job(cls.becker.reset_usb)
+        if not reopened:
+            raise HomeAssistantError(
+                "Becker USB reset completed, but the serial port could not be reopened."
+            )
+        _LOGGER.info("Becker USB stick reset and serial connection reopened successfully.")
 
     @classmethod
     async def handle_pair(cls, call):
